@@ -4,17 +4,20 @@ Give Claude Code, Codex, and Gemini CLI agents access to Jupyter servers + noteb
 ## Installation
 
 ```bash
+# Install from GitHub using uv
+uv add git+https://github.com/goodfire-ai/scribe.git
+```
+
+### Development Installation
+
+For local development with editable install:
+
+```bash
 # Clone the repository
 git clone https://github.com/goodfire-ai/scribe.git
 
-# Navigate to a project directory -- you can even use the scribe repo itself
-cd /path/to/your-project
-
-# [optional] initialize a virtual environment
-uv venv
-
-# Install scribe into your project's environment
-uv pip install -e /path/to/scribe/repo
+# From your project directory, install scribe in editable mode
+uv add --editable /path/to/scribe
 ```
 
 ## Usage  
