@@ -37,32 +37,42 @@ def copilot_impl(args=None, provider_name: str = DEFAULT_PROVIDER, verbose=False
         python_path = get_python_path()
 
         if provider_name == "claude":
-            # Create temporary file for settings and mcp config
-            settings_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False
-            )
-            json.dump(CLAUDE_COPILOT_SETTINGS, settings_file)
-            settings_file.close()
+            # Create a dedicated subdirectory for scribe config files in the user's
+            # home directory. We avoid the system temp directory because Claude Code's
+            # file watcher may scan the temp directory and fail on socket files
+            # (e.g., vscode-git-*.sock) with EOPNOTSUPP errors on macOS.
+            # See: https://github.com/anthropics/claude-code/issues/14438
+            # See: https://github.com/anthropics/claude-code/issues/15112
+            scribe_config_dir = Path.home() / ".scribe" / "sessions"
+            scribe_config_dir.mkdir(parents=True, exist_ok=True)
 
-            mcp_config_file = tempfile.NamedTemporaryFile(
-                mode="w", suffix=".json", delete=False
-            )
-            json.dump(provider.get_copilot_mcp_config(python_path), mcp_config_file)
-            mcp_config_file.close()
+            # Create config files in the isolated scribe directory
+            settings_file = scribe_config_dir / f"settings-{session_id}.json"
+            with open(settings_file, "w") as f:
+                json.dump(CLAUDE_COPILOT_SETTINGS, f)
+
+            mcp_config_file = scribe_config_dir / f"mcp-config-{session_id}.json"
+            with open(mcp_config_file, "w") as f:
+                json.dump(provider.get_copilot_mcp_config(python_path), f)
 
             cmd = [
                 "claude",
                 "--mcp-config",
-                mcp_config_file.name,
+                str(mcp_config_file),
                 "--settings",
-                settings_file.name,
+                str(settings_file),
                 "--append-system-prompt",
                 "",
             ]
             # Add any additional args passed to scribe copilot
             if args:
                 cmd.extend(args)
-            subprocess.run(cmd)
+            try:
+                subprocess.run(cmd)
+            finally:
+                # Clean up session-specific config files
+                settings_file.unlink(missing_ok=True)
+                mcp_config_file.unlink(missing_ok=True)
         elif provider_name == "gemini":
             # Get the settings from the provider
             settings_content = get_gemini_copilot_settings(python_path)
