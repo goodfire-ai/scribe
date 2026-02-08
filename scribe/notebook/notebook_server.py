@@ -12,7 +12,10 @@ import os
 import nbformat
 from jupyter_server.serverapp import ServerApp
 from traitlets import Unicode, Int
-from scribe.notebook._notebook_server_utils import clean_notebook_for_save
+from scribe.notebook._notebook_server_utils import (
+    clean_notebook_for_save,
+    get_notebook_metadata_for_kernel,
+)
 from dataclasses import dataclass
 
 from . import notebook_sever_handlers as _handlers
@@ -29,6 +32,7 @@ class ScribeNotebookSession:
     jupyter_session_id: str
     notebook_path: Path
     display_name: str
+    kernel_name: str = "python3"
     execution_count: int = 0
     last_activity: Optional[datetime] = None
 
@@ -122,6 +126,24 @@ class ScribeServerApp(ServerApp):
             print(f"❌ {error_msg}")
             raise ValueError(error_msg) from e
 
+    async def _get_kernel_language_info(self, kernel_id: str) -> dict:
+        """Query a running kernel for its language_info via kernel_info_request.
+
+        Returns the full language_info dict (name, version, mimetype, etc.)
+        or a minimal fallback if the request times out.
+        """
+        kernel = self.kernel_manager.get_kernel(kernel_id)
+        client = kernel.client()
+        client.start_channels()
+        try:
+            msg = await client._async_kernel_info()
+            return msg.get("content", {}).get("language_info", {})
+        except Exception as e:
+            print(f"Warning: failed to query language_info from kernel {kernel_id}: {e}")
+            return {}
+        finally:
+            client.stop_channels()
+
     def init_webapp(self):
         """Add our custom handlers to the web app."""
         super().init_webapp()
@@ -148,7 +170,7 @@ class ScribeServerApp(ServerApp):
             self.shutdown_check_callback.start()
 
     async def start_session(
-        self, experiment_name=None, existing_notebook_path=None, fork_prev_notebook=True
+        self, experiment_name=None, existing_notebook_path=None, fork_prev_notebook=True, kernel_name="python3",
     ):
         """
         Start a new scribe jupyter session -- one-to-one with a notebook and a kernel.
@@ -162,6 +184,7 @@ class ScribeServerApp(ServerApp):
                           NOTE: re-running cells without forking will update existing file, and may overwrite outputs
                           e.g. with different random outputs if seeds have not been set, or with errors if incorrect env
                           is being used.
+            kernel_name: Jupyter kernel spec name (e.g. "python3", "ir", "julia-1.12"). Must be installed and registered with Jupyter.
         """
         # Ensure notebooks directory is set up
         if self.notebooks_path is None:
@@ -225,16 +248,10 @@ class ScribeServerApp(ServerApp):
 
             # Create empty notebook
             nb = nbformat.v4.new_notebook()
-            nb.metadata.update(
-                {
-                    "kernelspec": {
-                        "display_name": f"Scribe: {base_name}",
-                        "language": "python",
-                        "name": "python3",
-                    },
-                    "language_info": {"name": "python", "version": "3.11"},
-                }
+            kernel_meta = get_notebook_metadata_for_kernel(
+                self.kernel_spec_manager, kernel_name
             )
+            nb.metadata.update(kernel_meta)
 
             # Save notebook
             with open(nb_path, "w") as f:
@@ -252,7 +269,7 @@ class ScribeServerApp(ServerApp):
             relative_path = nb_path
 
         # Create a kernel first to ensure it uses our current environment
-        kernel_id = await self.kernel_manager.start_kernel()
+        kernel_id = await self.kernel_manager.start_kernel(kernel_name=kernel_name)
 
         # Now create a session and associate it with our kernel
         sm = self.web_app.settings["session_manager"]
@@ -271,9 +288,19 @@ class ScribeServerApp(ServerApp):
             jupyter_session_id=jupyter_session_id,
             notebook_path=nb_path,
             display_name=kernel_display_name,
+            kernel_name=kernel_name,
             last_activity=datetime.now(),
         )
         self.sessions[session_id] = scribe_session
+
+        # Update notebook with kernel info after beginning
+        language_info = await self._get_kernel_language_info(kernel_id)
+        if language_info:
+            with open(nb_path, "r") as f:
+                nb = nbformat.read(f, as_version=nbformat.NO_CONVERT)
+            nb.metadata["language_info"] = language_info
+            with open(nb_path, "w") as f:
+                nbformat.write(clean_notebook_for_save(nb), f)
 
         """STEP 3: If we have an existing notebook, execute all code cells to restore state """
         restoration_results = []
@@ -379,6 +406,7 @@ class ScribeServerApp(ServerApp):
             "kernel_id": kernel_id,
             "notebook_path": str(nb_path),
             "kernel_display_name": kernel_display_name,
+            "kernel_name": kernel_name,
         }
 
         # Include restoration results in output if we restored from an existing notebook

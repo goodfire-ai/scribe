@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import requests
 from fastmcp.utilities.types import Image
+from jupyter_client.kernelspec import NoSuchKernel
 from ._image_processing_utils import resize_image_if_needed
 
 
@@ -52,6 +53,39 @@ def clean_notebook_for_save(nb):
             # Some notebook node types don't support attribute deletion
             pass
     return nb
+
+
+def get_notebook_metadata_for_kernel(kernel_spec_manager, kernel_name: str) -> Dict[str, Any]:
+    """Build notebook metadata by querying the installed kernel spec.
+
+    Args:
+        kernel_spec_manager: Jupyter's KernelSpecManager instance (from ServerApp).
+        kernel_name: Registered kernel name (e.g. "python3", "ir").
+
+    Returns:
+        Dict with "kernelspec" and stub "language_info" suitable for nb.metadata.update().
+
+    Raises:
+        ValueError: If the kernel is not installed.
+    """
+    try:
+        spec = kernel_spec_manager.get_kernel_spec(kernel_name)
+    except NoSuchKernel:
+        available = ", ".join(sorted(kernel_spec_manager.find_kernel_specs().keys()))
+        raise ValueError(
+            f"Kernel '{kernel_name}' is not installed. Available kernels: {available}"
+        )
+
+    return {
+        "kernelspec": {
+            "display_name": spec.display_name,
+            "language": spec.language,
+            "name": kernel_name,
+        },
+        # Stub language_info from the spec; the full version is populated
+        # after kernel startup via _get_kernel_language_info().
+        "language_info": {"name": spec.language},
+    }
 
 
 def check_server_health(port: int) -> Optional[Dict[str, Any]]:
