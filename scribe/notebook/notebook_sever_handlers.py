@@ -43,6 +43,7 @@ class StartSessionHandler(ScribeAPIHandler):
                 fork_prev_notebook=data.get(
                     "fork_prev_notebook", True
                 ),  # Default to True for backward compatibility
+                kernel_name=data.get("kernel_name", "python3"),
             )
 
             # Add server URL and token to response
@@ -53,7 +54,7 @@ class StartSessionHandler(ScribeAPIHandler):
             result["vscode_url"] = (
                 f"http://localhost:{self.scribe_app.port}/?token={self.scribe_app.token}"
             )
-            result["kernel_name"] = result.pop("kernel_display_name", "")
+            result["kernel_display_name"] = result.pop("kernel_display_name", "")
             result["status"] = "started"
 
             self.finish(json.dumps(result))

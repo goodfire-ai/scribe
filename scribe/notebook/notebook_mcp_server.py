@@ -148,6 +148,7 @@ async def _start_session_internal(
     notebook_path: Optional[str] = None,
     fork_prev_notebook: bool = True,
     tool_name: str = "start_session",
+    kernel_name: str = "python3",
 ) -> Dict[str, Any]:
     """
     Internal helper function for starting sessions from scratch versus resuming versus forking existing notebook.
@@ -157,13 +158,14 @@ async def _start_session_internal(
         notebook_path: Path to existing notebook (if any)
         fork_prev_notebook: If True, create new notebook; if False, use existing in-place
         tool_name: Name of the calling tool for logging/debugging
+        kernel_name: Jupyter kernel spec name (e.g. "python3", "ir")
     """
     try:
         # Ensure server is running
         server_url = ensure_server_running()
 
         # Build request body
-        request_body = {}
+        request_body = {"kernel_name": kernel_name}
         if experiment_name:
             request_body["experiment_name"] = experiment_name
         if notebook_path:
@@ -187,9 +189,8 @@ async def _start_session_internal(
             "status": "started",
             "notebook_path": data["notebook_path"],
             "vscode_url": f"{data.get('server_url', server_url)}/?token={data.get('token', token)}",
-            "kernel_name": data.get(
-                "kernel_name", data.get("kernel_display_name", "Scribe Kernel")
-            ),
+            "kernel_name": data.get("kernel_name", "python3"),
+            "kernel_display_name": data.get("kernel_display_name", "Scribe Kernel"),
         }
 
         # Track session for cleanup
@@ -263,12 +264,18 @@ async def _start_session_internal(
 
 
 @mcp.tool
-async def start_new_session(experiment_name: Optional[str] = None) -> Dict[str, Any]:
+async def start_new_session(
+    experiment_name: Optional[str] = None,
+    kernel_name: str = "python3",
+) -> Dict[str, Any]:
     """
     Start a completely new Jupyter kernel session with an empty notebook.
 
+    Supports any installed Jupyter kernel (e.g. "python3", "ir" for R via IRkernel).
+
     Args:
         experiment_name: Custom name for the notebook (e.g., "ImageGeneration")
+        kernel_name: Jupyter kernel spec name. Defaults to "python3".
 
     Returns:
         Dictionary with:
@@ -284,6 +291,7 @@ async def start_new_session(experiment_name: Optional[str] = None) -> Dict[str, 
         notebook_path=None,
         fork_prev_notebook=True,
         tool_name="start_new_session",
+        kernel_name=kernel_name,
     )
 
 
@@ -295,7 +303,9 @@ async def start_new_session(experiment_name: Optional[str] = None) -> Dict[str, 
         "title": "Start Session - Resume Notebook"  # A human-readable title for the tool.
     },
 )
-async def start_session_resume_notebook(notebook_path: str) -> Dict[str, Any]:
+async def start_session_resume_notebook(
+    notebook_path: str, kernel_name: str = "python3",
+) -> Dict[str, Any]:
     """
     Start a new session by resuming an existing notebook in-place, modifying the original notebook file.
 
@@ -304,6 +314,7 @@ async def start_session_resume_notebook(notebook_path: str) -> Dict[str, Any]:
 
     Args:
         notebook_path: Path to the existing notebook to resume from
+        kernel_name: Jupyter kernel spec name. Should match the notebook's language.
 
     Returns:
         Dictionary with:
@@ -322,12 +333,14 @@ async def start_session_resume_notebook(notebook_path: str) -> Dict[str, Any]:
         notebook_path=notebook_path,
         fork_prev_notebook=False,
         tool_name="start_session_resume_notebook",
+        kernel_name=kernel_name,
     )
 
 
 @mcp.tool
 async def start_session_continue_notebook(
-    notebook_path: str, experiment_name: Optional[str] = None
+    notebook_path: str, experiment_name: Optional[str] = None,
+    kernel_name: str = "python3",
 ) -> Dict[str, Any]:
     """
     Start a session by continuing from an existing notebook (creates a new notebook file).
@@ -338,6 +351,7 @@ async def start_session_continue_notebook(
     Args:
         notebook_path: Path to the existing notebook to continue from
         experiment_name: Optional custom name for the new notebook
+        kernel_name: Jupyter kernel spec name. Should match the notebook's language.
 
     Returns:
         Dictionary with:
@@ -356,6 +370,7 @@ async def start_session_continue_notebook(
         notebook_path=notebook_path,
         fork_prev_notebook=True,
         tool_name="start_session_continue_notebook",
+        kernel_name=kernel_name,
     )
 
 
