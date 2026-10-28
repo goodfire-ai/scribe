@@ -143,6 +143,18 @@ def get_server_status() -> Dict[str, Any]:
     }
 
 
+def _raise_for_status(response: requests.Response) -> None:
+    """Like response.raise_for_status(), but keeps the Scribe server's error message."""
+    try:
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        try:
+            detail = response.json()["error"]
+        except (ValueError, KeyError, TypeError):
+            detail = response.text
+        raise requests.exceptions.HTTPError(f"{e} - {detail}", response=response) from e
+
+
 async def _start_session_internal(
     experiment_name: Optional[str] = None,
     notebook_path: Optional[str] = None,
@@ -178,7 +190,7 @@ async def _start_session_internal(
         response = requests.post(
             f"{server_url}/api/scribe/start", json=request_body, headers=headers
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         data = response.json()
 
         result = {
@@ -390,7 +402,7 @@ async def execute_code(
             json={"session_id": session_id, "code": code},
             headers=headers,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         data = response.json()
 
         # Process outputs using utils function
@@ -438,7 +450,7 @@ async def add_markdown(session_id: str, content: str) -> Dict[str, int]:
             json={"session_id": session_id, "content": content},
             headers=headers,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         data = response.json()
 
 
@@ -483,7 +495,7 @@ async def edit_cell(
             json={"session_id": session_id, "code": code, "cell_index": cell_index},
             headers=headers,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
         data = response.json()
 
         # Process outputs using utils function
@@ -531,7 +543,7 @@ async def shutdown_session(session_id: str) -> str:
             json={"session_id": session_id},
             headers=headers,
         )
-        response.raise_for_status()
+        _raise_for_status(response)
 
         # Clean up session images if image saving is enabled
         global _active_sessions

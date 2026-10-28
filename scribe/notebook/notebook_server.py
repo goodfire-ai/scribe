@@ -43,7 +43,9 @@ class ScribeServerApp(ServerApp):
     )
 
     auto_shutdown_minutes = Int(
-        60, config=True, help="Minutes before auto-shutdown of idle kernels"
+        60,
+        config=True,
+        help="Minutes before auto-shutdown of idle kernels (0 disables)",
     )
 
     def __init__(self, **kwargs):
@@ -55,15 +57,6 @@ class ScribeServerApp(ServerApp):
 
         # Track last activity time
         self.last_activity_time = datetime.now()
-
-        # Set up auto-shutdown timer if enabled
-        if self.auto_shutdown_minutes > 0:
-            from tornado.ioloop import PeriodicCallback
-
-            self.shutdown_check_callback = PeriodicCallback(
-                self.check_auto_shutdown,
-                60000,  # Check every minute
-            )
 
         # Note: notebooks_path will be set up in initialize() after config is parsed
         self.notebooks_path = None
@@ -103,10 +96,11 @@ class ScribeServerApp(ServerApp):
             notebooks_path.mkdir(parents=True, exist_ok=True)
 
             # Verify we can write to the directory
-            test_file = notebooks_path / ".scribe_write_test"
+            # Use a per-process name so servers starting together don't race on one file
+            test_file = notebooks_path / f".scribe_write_test_{os.getpid()}"
             try:
                 test_file.write_text("test")
-                test_file.unlink()
+                test_file.unlink(missing_ok=True)
             except PermissionError:
                 raise ValueError(
                     f"No write permission for notebooks directory: {notebooks_path}"
@@ -143,8 +137,16 @@ class ScribeServerApp(ServerApp):
 
         self.web_app.add_handlers(host_pattern, handlers)
 
-        # Start the auto-shutdown timer after webapp is initialized
-        if hasattr(self, "shutdown_check_callback"):
+        # Start the auto-shutdown timer after webapp is initialized, if enabled.
+        # This must happen after config is parsed (not in __init__), so that
+        # a configured auto_shutdown_minutes of 0 disables it.
+        if self.auto_shutdown_minutes > 0:
+            from tornado.ioloop import PeriodicCallback
+
+            self.shutdown_check_callback = PeriodicCallback(
+                self.check_auto_shutdown,
+                60000,  # Check every minute
+            )
             self.shutdown_check_callback.start()
 
     async def start_session(
